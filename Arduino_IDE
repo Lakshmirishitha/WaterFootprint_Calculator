@@ -1,0 +1,105 @@
+*
+  ESP8266 Dual YF-S201 flow sensors -> Serial JSON (no WiFi)
+  Fixed: ISR functions are defined before setup() so attachInterrupt() sees them.
+  - Uses interrupts to count pulses for two YF-S201 sensors
+  - Computes flow (L/min) and cumulative volume (L)
+  - Prints a single-line JSON object to Serial every SERIAL_INTERVAL_MS
+*/
+
+#include <Arduino.h>
+
+// Pins (change if needed)
+const uint8_t PIN_FLOW1 = D5; // GPIO14
+const uint8_t PIN_FLOW2 = D6; // GPIO12
+
+// Volatile counters updated inside ISRs
+volatile unsigned long pulses1 = 0;
+volatile unsigned long pulses2 = 0;
+
+// ISR functions MUST be visible to attachInterrupt() — define them BEFORE setup()
+ICACHE_RAM_ATTR void isr_flow1() {
+  pulses1++;
+}
+
+ICACHE_RAM_ATTR void isr_flow2() {
+  pulses2++;
+}
+
+// Calibration: starting point for YF-S201 (adjust after calibration)
+float PULSES_PER_LITER = 450.0;
+
+// Timing
+unsigned long lastMeasureMillis = 0;
+const unsigned long MEASURE_INTERVAL_MS = 1000; // measurement window (ms)
+const unsigned long SERIAL_INTERVAL_MS = 2000;  // print JSON every 2s
+
+// State
+float volumeL1 = 0.0;
+float volumeL2 = 0.0;
+float lastFlow1_Lmin = 0.0;
+float lastFlow2_Lmin = 0.0;
+
+void setup() {
+  Serial.begin(115200);
+  delay(50);
+
+  pinMode(PIN_FLOW1, INPUT_PULLUP);
+  pinMode(PIN_FLOW2, INPUT_PULLUP);
+
+  // Attach interrupts. digitalPinToInterrupt works with ESP8266 pin defines.
+  attachInterrupt(digitalPinToInterrupt(PIN_FLOW1), isr_flow1, RISING);
+  attachInterrupt(digitalPinToInterrupt(PIN_FLOW2), isr_flow2, RISING);
+
+  lastMeasureMillis = millis();
+  Serial.println("{\"info\":\"Flow monitor starting (serial)\"}");
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  // Measurement window: compute flows from pulse counts every MEASURE_INTERVAL_MS
+  if (now - lastMeasureMillis >= MEASURE_INTERVAL_MS) {
+    noInterrupts();
+      unsigned long count1 = pulses1;
+      unsigned long count2 = pulses2;
+      pulses1 = 0;
+      pulses2 = 0;
+    interrupts();
+
+    float dt = (now - lastMeasureMillis) / 1000.0; // seconds
+    lastMeasureMillis = now;
+
+    // pulses per second
+    float pps1 = count1 / dt;
+    float pps2 = count2 / dt;
+
+    // Flow L/min = (pps * 60) / pulses_per_liter
+    lastFlow1_Lmin = (pps1 * 60.0) / PULSES_PER_LITER;
+    lastFlow2_Lmin = (pps2 * 60.0) / PULSES_PER_LITER;
+
+    // Volume increment in liters = flow (L/min) * dt/60
+    float deltaL1 = lastFlow1_Lmin * (dt / 60.0);
+    float deltaL2 = lastFlow2_Lmin * (dt / 60.0);
+
+    volumeL1 += deltaL1;
+    volumeL2 += deltaL2;
+  }
+
+  // Periodically print JSON line to Serial
+  static unsigned long lastPrint = 0;
+  if (now - lastPrint >= SERIAL_INTERVAL_MS) {
+    lastPrint = now;
+
+    // Build JSON (compact single-line)
+    String payload = "{";
+    payload += "\"tap1\":{\"flow_L_min\":" + String(lastFlow1_Lmin, 3) + ",\"volume_L\":" + String(volumeL1, 4) + "},";
+    payload += "\"tap2\":{\"flow_L_min\":" + String(lastFlow2_Lmin, 3) + ",\"volume_L\":" + String(volumeL2, 4) + "},";
+    payload += "\"ts\":" + String(millis());
+    payload += "}";
+
+    Serial.println(payload);
+  }
+
+  // small idle
+  delay(10);
+}
