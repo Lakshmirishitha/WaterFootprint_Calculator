@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Water Footprint Analytics</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <style>
+    /* Global styling for a modern dashboard feel */
+    body { 
+        background-color: #eef2f5; /* Very light blue-grey background */
+        font-family: 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        min-height: 100vh; /* Ensure body takes full viewport height */
+        display: flex;
+        flex-direction: column;
+    }
+    .navbar-brand { font-size: 1.8rem !important; font-weight: 600; }
+    .card { 
+        border: none; 
+        box-shadow: 0 0.5rem 1.5rem rgba(0,0,0,0.15); /* Even deeper shadow */
+        border-radius: 1rem; /* More rounded corners */
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    }
+    .card:hover { 
+        transform: translateY(-5px); /* More pronounced lift on hover */
+        box-shadow: 0 0.75rem 2rem rgba(0,0,0,0.2); 
+    }
+
+    /* Live Card Specifics */
+    .live-card {
+        min-height: 180px; /* Increased height for live cards */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        position: relative;
+        overflow: hidden; /* For water ripple effect if added later */
+    }
+    .live-card::before { /* Subtle background pattern */
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: radial-gradient(circle at center, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
+        opacity: 0.3;
+        z-index: 0;
+    }
+    .live-card .card-content { z-index: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+    .live-card h6 { font-weight: 400; color: rgba(255,255,255,0.8); margin-bottom: 0.75rem; }
+    .live-card .icon { font-size: 2.5rem; margin-bottom: 0.5rem; opacity: 0.8; }
+    .live-reading { font-size: 4rem; font-weight: 700; line-height: 1; margin-bottom: 0.25rem; }
+    .live-card small { font-size: 0.9rem; }
+
+    /* Overall Metric Card */
+    .overall-metric { padding: 1rem 0; }
+    .overall-metric h3 { font-size: 2.4rem; font-weight: 700; margin-top: 0.75rem; color: #007bff; }
+    .overall-metric h6 { font-weight: 400; color: #6c757d; font-size: 1rem; }
+
+    /* Individual Totals Card */
+    .individual-totals-card {
+        height: 100%; /* Makes it expand vertically */
+        display: flex;
+        flex-direction: column;
+    }
+    .individual-totals-card .card-body { flex-grow: 1; display: flex; flex-direction: column; justify-content: space-around; }
+    .individual-item {
+        background-color: #f8f9fa; /* Lighter background for items */
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+    }
+    .individual-item span:first-child { font-weight: 500; color: #343a40; }
+    .individual-item span:last-child { font-weight: 700; color: #007bff; }
+
+
+    /* Chart Container */
+    .chart-container { 
+        position: relative; 
+        height: 380px; /* Slightly increased height for chart */
+        width: 100%; 
+    }
+    /* Notification */
+    #notificationContainer { 
+        position: fixed; 
+        bottom: 25px; 
+        right: 25px; 
+        z-index: 1050; 
+        max-width: 400px;
+    }
+    .alert-warning { background-color: #fff3cd; border-color: #ffeeba; color: #664d03; }
+
+    main { flex-grow: 1; } /* Allow main content to grow */
+    footer { margin-top: auto; } /* Push footer to the bottom */
+  </style>
+</head>
+<body>
+  
+  <div id="notificationContainer"></div>
+
+  <nav class="navbar navbar-dark bg-primary shadow-sm py-3">
+    <div class="container-fluid">
+      <a class="navbar-brand d-flex align-items-center" href="#">
+        <i class="bi bi-droplet-fill me-3 fs-2"></i> Water Footprint Analytics
+      </a>
+    </div>
+  </nav>
+
+  <main class="container-fluid my-5">
+    <div class="row g-4 h-100"> <div class="col-lg-5 d-flex flex-column"> <div class="row g-4 flex-grow-1"> <div class="col-md-6 d-flex"> <div class="card live-card bg-info text-white p-4 text-center flex-grow-1">
+              <div class="card-content">
+                <i class="fas fa-faucet icon mb-2"></i> <h6>Tap 1 - Kitchen Sink</h6>
+                <p class="live-reading" id="tap1LiveFlow">0.00</p>
+                <small class="text-white-50">Liters / Second</small>
+              </div>
+            </div>
+          </div>
+          
+          <div class="col-md-6 d-flex">
+            <div class="card live-card bg-success text-white p-4 text-center flex-grow-1">
+              <div class="card-content">
+                <i class="fas fa-hose-valve icon mb-2"></i> <h6>Tap 2 - Garden Hose</h6>
+                <p class="live-reading" id="tap2LiveFlow">0.00</p>
+                <small class="text-white-50">Liters / Second</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 d-flex"> <div class="card individual-totals-card p-4 flex-grow-1">
+              <h5 class="mb-4 text-primary">Individual Tap Totals</h5>
+              <div class="card-body"> <div class="row g-3">
+                    <div class="col-md-6">
+                      <div class="individual-item d-flex justify-content-between align-items-center">
+                        <span>Tap 1 Today:</span> <span class="fw-bold" id="tap1DailyTotal">0 L</span>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="individual-item d-flex justify-content-between align-items-center">
+                        <span>Tap 2 Today:</span> <span class="fw-bold" id="tap2DailyTotal">0 L</span>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="individual-item d-flex justify-content-between align-items-center">
+                        <span>Tap 1 Week:</span> <span class="fw-bold" id="tap1WeeklyTotal">0 L</span>
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="individual-item d-flex justify-content-between align-items-center">
+                        <span>Tap 2 Week:</span> <span class="fw-bold" id="tap2WeeklyTotal">0 L</span>
+                      </div>
+                    </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+        </div>
+      </div>
+
+      <div class="col-lg-7 d-flex flex-column"> <div class="row g-4 flex-grow-1">
+          
+          <div class="col-12 d-flex">
+            <div class="card p-4 flex-grow-1">
+              <h5 class="mb-4 text-primary">Overall Footprint</h5>
+              <div class="row text-center flex-grow-1 d-flex align-items-center justify-content-around">
+                <div class="col-md-3 overall-metric">
+                  <h6>Today</h6><h3 id="dailyTotal">0 L</h3>
+                </div>
+                <div class="col-md-3 overall-metric">
+                  <h6>This Week</h6><h3 id="weeklyTotal">0 L</h3>
+                </div>
+                <div class="col-md-3 overall-metric">
+                  <h6>This Month</h6><h3 id="monthlyTotal">0 L</h3>
+                </div> 
+                <div class="col-md-3 overall-metric">
+                  <h6>Lifetime Total</h6><h3 id="lifetimeTotal">0 L</h3>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="col-12 d-flex">
+            <div class="card p-4 flex-grow-1">
+              <h5 class="mb-4 text-primary">Usage Trend (Last 12 Hours)</h5>
+              <div class="chart-container"> 
+                <canvas id="usageChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="mt-5 py-3 bg-light text-center text-muted border-top">
+    <small>&copy; 2025 Water Footprint Analytics. All rights reserved.</small>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
